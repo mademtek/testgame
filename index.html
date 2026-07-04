@@ -379,62 +379,42 @@ function tryDash(){
   launchBearsAt(p.x,p.z,p.ch.knockR,0);
 }
 
-/* ---------------- Multiplayer (P2P via WebRTC) ---------------- */
-const SIGURL='wss://0.peerjs.com/peerjs?key=peerjs';
-const ICE={iceServers:[
+/* ---------------- Multiplayer (P2P via PeerJS/WebRTC) ---------------- */
+/* Nutzt die offizielle PeerJS-Bibliothek für den Verbindungsaufbau. Sie wird
+   erst beim Öffnen des Multiplayer-Modus nachgeladen – Solo bleibt so komplett
+   self-contained & offline. Signaling über den kostenlosen PeerJS-Cloud-Broker,
+   danach fließen alle Spieldaten direkt P2P. Kein eigener Server nötig. */
+const PEERJS_SRC='https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
+const ROOM_PREFIX='bklvbauch2-'; // eindeutiges Präfix, damit Raumcodes nicht mit fremden PeerJS-Apps kollidieren
+const PEER_OPTS={debug:1,config:{iceServers:[
   {urls:'stun:stun.l.google.com:19302'},
   {urls:'stun:stun1.l.google.com:19302'},
-  {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
-  {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'},
-]};
-const mp={ws:null,pc:null,dc:null,myId:'',peerId:'',code:'',connected:false,
-  hb:null,theme:0,oppChar:0,evq:[],lastSend:0,joinTimer:null,started:false};
+  {urls:['turn:openrelay.metered.ca:80','turn:openrelay.metered.ca:443','turns:openrelay.metered.ca:443'],username:'openrelayproject',credential:'openrelayproject'},
+]}};
+const mp={peer:null,conn:null,code:'',connected:false,
+  theme:0,oppChar:0,evq:[],lastSend:0,joinTimer:null,started:false,libLoading:false,retries:0};
+function mpOpts(){ return window.__PEER_OPTS||PEER_OPTS; } // Test-Hook: erlaubt lokalen Broker
 function mpStatus(txt){ document.getElementById('mpStatus').textContent=txt; }
 function randCode(n){ const A='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<n;i++)s+=A[Math.floor(Math.random()*A.length)];return s; }
-function sigOpen(id,onOpen){
-  sigClose(false);
-  let ws;
-  try{ ws=new WebSocket(SIGURL+'&id='+id+'&token='+randCode(12)); }
-  catch(e){ mpStatus('❌ Verbindung nicht möglich.'); return; }
-  mp.ws=ws;mp.myId=id;
-  ws.onopen=()=>{ mp.hb=setInterval(()=>{try{ws.send('{"type":"HEARTBEAT"}');}catch(e){}},5000); };
-  ws.onmessage=ev=>{
-    let m;try{m=JSON.parse(ev.data);}catch(e){return;}
-    if(m.type==='OPEN'){ onOpen&&onOpen(); }
-    else if(m.type==='ID-TAKEN'){ if(mode==='host'){ hostRoom(); } else mpStatus('❌ Fehler – versuch es nochmal.'); }
-    else if(m.type==='ERROR'){ /* z.B. Peer nicht gefunden */ }
-    else if(m.type==='OFFER'&&mode==='host'){ hostOnOffer(m); }
-    else if(m.type==='ANSWER'&&mode==='guest'){ if(mp.pc)mp.pc.setRemoteDescription(m.payload.sdp).catch(()=>{}); }
-    else if(m.type==='CANDIDATE'){ if(mp.pc&&m.payload&&m.payload.candidate)mp.pc.addIceCandidate(m.payload.candidate).catch(()=>{}); }
-  };
-  ws.onerror=()=>{ if(!mp.connected)mpStatus('❌ Signal-Server nicht erreichbar. Internet an?'); };
-  ws.onclose=()=>{ if(mp.hb){clearInterval(mp.hb);mp.hb=null;} };
+function loadPeerJS(cb){
+  if(window.Peer){cb();return;}
+  if(mp.libLoading){ const iv=setInterval(()=>{if(window.Peer){clearInterval(iv);cb();}},120); return; }
+  mp.libLoading=true;
+  const s=document.createElement('script');
+  s.src=PEERJS_SRC;
+  s.onload=()=>{ mp.libLoading=false; if(window.Peer)cb(); else mpStatus('❌ Multiplayer-Modul defekt.'); };
+  s.onerror=()=>{ mp.libLoading=false; mpStatus('❌ Konnte Multiplayer-Modul nicht laden. Internet prüfen!'); };
+  document.head.appendChild(s);
 }
-function sigSend(type,payload){
-  if(mp.ws&&mp.ws.readyState===1&&mp.peerId)
-    try{mp.ws.send(JSON.stringify({type,dst:mp.peerId,payload}));}catch(e){}
+function sigClose(){
+  if(mp.joinTimer){clearTimeout(mp.joinTimer);mp.joinTimer=null;}
+  if(mp.conn){try{mp.conn.off&&mp.conn.off('close');mp.conn.close();}catch(e){} mp.conn=null;}
+  if(mp.peer){try{mp.peer.destroy();}catch(e){} mp.peer=null;}
+  mp.connected=false;mp.started=false;
 }
-function sigClose(all){
-  if(mp.hb){clearInterval(mp.hb);mp.hb=null;}
-  if(mp.ws){try{mp.ws.onclose=null;mp.ws.close();}catch(e){} mp.ws=null;}
-  if(all){
-    if(mp.dc){try{mp.dc.onclose=null;mp.dc.close();}catch(e){} mp.dc=null;}
-    if(mp.pc){try{mp.pc.close();}catch(e){} mp.pc=null;}
-    mp.connected=false;mp.started=false;
-    if(mp.joinTimer){clearTimeout(mp.joinTimer);mp.joinTimer=null;}
-  }
-}
-function newPC(){
-  const pc=new RTCPeerConnection(ICE);
-  pc.onicecandidate=e=>{ if(e.candidate)sigSend('CANDIDATE',{candidate:e.candidate}); };
-  pc.onconnectionstatechange=()=>{
-    if(pc.connectionState==='failed'&&!mp.connected)mpStatus('❌ Verbindung fehlgeschlagen. Nochmal versuchen!');
-  };
-  return pc;
-}
-function wireDC(dc){
-  mp.dc=dc;
-  dc.onopen=()=>{
+function wireConn(conn){
+  mp.conn=conn;
+  conn.on('open',()=>{
     mp.connected=true;
     if(mp.joinTimer){clearTimeout(mp.joinTimer);mp.joinTimer=null;}
     mpSend({t:'hello',c:selChar});
@@ -444,49 +424,74 @@ function wireDC(dc){
     }else{
       mpStatus('✅ Verbunden – warte auf den Host…');
     }
-  };
-  dc.onmessage=ev=>{ let m;try{m=JSON.parse(ev.data);}catch(e){return;} onNet(m); };
-  dc.onclose=()=>{
+  });
+  conn.on('data',m=>{ if(m&&typeof m==='object')onNet(m); });
+  conn.on('close',()=>{
     mp.connected=false;
     if(state==='play'||state==='count'){ mpAbort('❌ Verbindung zum Mitspieler verloren.'); }
     else if(mode==='host'||mode==='guest'){ mpStatus('❌ Mitspieler hat die Verbindung getrennt.'); document.getElementById('mpStartBtn').classList.add('hidden'); }
-  };
+  });
+  conn.on('error',()=>{});
 }
 function hostRoom(){
-  mode='host';mp.code=randCode(4);
+  mode='host';mp.retries=0;
   document.getElementById('mpChoose').classList.add('hidden');
   document.getElementById('mpRoom').classList.remove('hidden');
+  mpStatus('⏳ Lade Multiplayer…');
+  loadPeerJS(()=>hostOpen());
+}
+function hostOpen(){
+  sigClose();
+  mp.code=randCode(4);
   document.getElementById('roomCode').textContent=mp.code;
-  mpStatus('⏳ Warte auf Mitspieler…');
-  sigOpen('bklvb-'+mp.code,null);
-}
-function hostOnOffer(m){
-  mp.peerId=m.src;
-  const pc=newPC();mp.pc=pc;
-  pc.ondatachannel=e=>wireDC(e.channel);
-  pc.setRemoteDescription(m.payload.sdp)
-    .then(()=>pc.createAnswer()).then(a=>pc.setLocalDescription(a))
-    .then(()=>sigSend('ANSWER',{sdp:pc.localDescription}))
-    .catch(()=>mpStatus('❌ Verbindungsfehler.'));
-}
-function joinRoom(code){
-  mode='guest';mp.code=code;mp.peerId='bklvb-'+code;
-  mpStatus('⏳ Verbinde…');
-  sigOpen('bklvb-'+code+'-g'+randCode(6),()=>{
-    const pc=newPC();mp.pc=pc;
-    wireDC(pc.createDataChannel('game'));
-    pc.createOffer().then(o=>pc.setLocalDescription(o))
-      .then(()=>sigSend('OFFER',{sdp:pc.localDescription}))
-      .catch(()=>mpStatus('❌ Verbindungsfehler.'));
-    mp.joinTimer=setTimeout(()=>{
-      if(!mp.connected)mpStatus('❌ Raum "'+code+'" nicht gefunden – Code prüfen!');
-    },8000);
+  mpStatus('⏳ Verbinde mit Broker…');
+  let peer;
+  try{ peer=new Peer(ROOM_PREFIX+mp.code,mpOpts()); }
+  catch(e){ mpStatus('❌ Verbindung nicht möglich.'); return; }
+  mp.peer=peer;
+  peer.on('open',()=>mpStatus('⏳ Warte auf Mitspieler… Code: '+mp.code));
+  peer.on('connection',conn=>{
+    if(mp.connected){ try{conn.close();}catch(e){} return; } // schon jemand da
+    wireConn(conn);
+  });
+  peer.on('error',err=>{
+    const t=err&&err.type;
+    if(t==='unavailable-id'&&mp.retries<5){ mp.retries++; hostOpen(); } // Code vergeben -> neuer Code
+    else if(t==='network'||t==='server-error'||t==='socket-error'){ mpStatus('❌ Broker nicht erreichbar. Nochmal versuchen!'); }
+    else if(!mp.connected){ mpStatus('❌ Fehler: '+(t||'unbekannt')); }
   });
 }
-function mpSend(o){ if(mp.dc&&mp.dc.readyState==='open')try{mp.dc.send(JSON.stringify(o));}catch(e){} }
+function joinRoom(code){
+  mode='guest';mp.code=code;
+  mpStatus('⏳ Lade Multiplayer…');
+  loadPeerJS(()=>{
+    sigClose();
+    let peer;
+    try{ peer=new Peer(ROOM_PREFIX+code+'-g'+randCode(6),mpOpts()); }
+    catch(e){ mpStatus('❌ Verbindung nicht möglich.'); return; }
+    mp.peer=peer;
+    peer.on('open',()=>{
+      mpStatus('⏳ Verbinde mit Raum '+code+'…');
+      let conn;
+      try{ conn=peer.connect(ROOM_PREFIX+code,{reliable:true}); }
+      catch(e){ mpStatus('❌ Verbindungsfehler.'); return; }
+      wireConn(conn);
+      mp.joinTimer=setTimeout(()=>{
+        if(!mp.connected)mpStatus('❌ Raum "'+code+'" nicht gefunden – Code & Internet prüfen!');
+      },12000);
+    });
+    peer.on('error',err=>{
+      const t=err&&err.type;
+      if(t==='peer-unavailable'){ mpStatus('❌ Raum "'+code+'" nicht gefunden – Code prüfen!'); }
+      else if(t==='network'||t==='server-error'||t==='socket-error'){ mpStatus('❌ Broker nicht erreichbar. Internet an?'); }
+      else if(!mp.connected){ mpStatus('❌ Fehler: '+(t||'unbekannt')); }
+    });
+  });
+}
+function mpSend(o){ if(mp.conn&&mp.conn.open)try{mp.conn.send(o);}catch(e){} }
 function mpEv(e){ if(mode==='host'&&mp.connected)mp.evq.push(e); }
 function mpAbort(msg){
-  sigClose(true);
+  sigClose();
   mode='solo';state='menu';
   showScreen('menu');
   document.getElementById('mpStartBtn').classList.add('hidden');
@@ -1456,7 +1461,7 @@ document.getElementById('againBtn').addEventListener('click',()=>{
   else startSolo();
 });
 document.getElementById('menuBtn').addEventListener('click',()=>{
-  if(mode!=='solo'){ mpSend({t:'bye'}); sigClose(true); mode='solo'; }
+  if(mode!=='solo'){ mpSend({t:'bye'}); sigClose(); mode='solo'; }
   state='menu';resetGame();
   document.getElementById('mpStartBtn').classList.add('hidden');
   showScreen('menu');
@@ -1479,7 +1484,7 @@ document.getElementById('joinBtn').addEventListener('click',()=>{
 });
 document.getElementById('mpStartBtn').addEventListener('click',hostStart);
 document.getElementById('mpBackBtn').addEventListener('click',()=>{
-  sigClose(true);mode='solo';
+  sigClose();mode='solo';
   document.getElementById('mpStartBtn').classList.add('hidden');
   showScreen('menu');
 });
