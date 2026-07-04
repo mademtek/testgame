@@ -28,12 +28,8 @@ Ein 3D-Handyspiel in einer einzigen `index.html` – komplett self-contained, oh
 
 Einfach `index.html` im Browser öffnen – mehr braucht es nicht.
 
-### Auf GitHub Pages veröffentlichen
+### GitHub Pages
 
-GitHub Pages ist bei **privaten** Repos nur mit GitHub Pro verfügbar. So geht's kostenlos:
+Das Spiel läuft unter: **https://mademtek.github.io/testgame/**
 
-1. Repo öffentlich machen: **Settings → General → Danger Zone → Change visibility → Public**
-2. Diesen Branch nach `main` mergen
-3. Der Workflow `.github/workflows/deploy-pages.yml` aktiviert Pages automatisch und deployt
-
-Danach ist das Spiel erreichbar unter: **https://mademtek.github.io/testgame/**
+Bei jedem Push auf `main` spiegelt der Workflow `.github/workflows/deploy-pages.yml` den Stand automatisch auf den `gh-pages`-Branch, von dem GitHub Pages ausliefert.
