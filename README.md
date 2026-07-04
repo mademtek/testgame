@@ -18,11 +18,43 @@ Ein 3D-Handyspiel in einer einzigen `index.html` – komplett self-contained, oh
 - ⚡ **Rechts tippen**: Dash (macht kurz unverwundbar und schleudert Bären weg)
 - Auf dem Desktop: WASD/Pfeiltasten + Leertaste
 
-## Extras
+## 5 Level
 
-- 🥮 Baklava = 1 Punkt · 🍯 Gold-Tablett = 3 Punkte · ☕ Çay-Glas = +6 Sekunden
+Erreiche das Baklava-Ziel, bevor die Zeit abläuft, und steig auf ins nächste Level – jedes mit eigener Welt und mehr Yuffibären:
+
+1. **Basar** – der klassische Sonnenuntergang-Basar
+2. **Nachtbasar** – Sternenhimmel, mehr Bären
+3. **Wüste** – heller Tag, offene Dünen
+4. **Hamam** – rutschiger Marmorboden mit aufsteigendem Dampf
+5. **Sultanspalast** – das goldene Finale
+
+Wer alle fünf schafft, wird **Sultan von Baklavistan** 👑.
+
+## Power-Ups & Extras
+
+- 🥮 Baklava = 1 Punkt · 🍯 Gold-Tablett = 3 Punkte
+- ☕ **Çay-Glas** = +6 Sekunden
+- 🌶️ **Chili** = Turbo-Tempo für 6 Sekunden
+- 🧿 **Nazar** = Schutzschild gegen den nächsten Bären-Treffer
+- 🍯 **Honig** = zieht 8 Sekunden lang alles Baklava magisch an
+- ⭐ **Goldener Yuffibär** = per Dash weggeschleudert bringt er 10 Punkte
 - 🔥 Combo-Multiplikator (×2 ab 5, ×3 ab 12 Treffern in Folge)
-- 🐻 Yuffibären-Treffer kosten Punkte – schnell essen lohnt sich!
+
+## 📡 2-Spieler-Multiplayer (Peer-to-Peer)
+
+Zwei Handys spielen 90 Sekunden gegeneinander – wer mehr Baklava isst, gewinnt.
+Die Verbindung läuft **direkt von Handy zu Handy über WebRTC**, es gibt keinen
+eigenen Spiel-Server. So geht's:
+
+1. Spieler A tippt auf **📡 2 SPIELER → RAUM ERSTELLEN** und bekommt einen 4-stelligen Code.
+2. Spieler B tippt den Code ein und auf **BEITRETEN**.
+3. Fertig – der Host startet das Duell.
+
+> Für den reinen Verbindungsaufbau (das „Händeschütteln") wird der kostenlose,
+> öffentliche PeerJS-Broker genutzt. Danach fließen alle Spieldaten direkt
+> zwischen den beiden Geräten. Es muss also **kein eigener Server betrieben
+> werden**, und das Spiel läuft komplett auf GitHub Pages. Beide Geräte
+> brauchen nur eine Internetverbindung.
 
 ## Spielen
 
